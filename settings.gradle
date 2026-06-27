@@ -10,8 +10,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // 使用专门针对 LSPosed 的 API 仓库
-        maven { url 'https://jitpack.io' }
+        // ❌ 删掉 jitpack，永远不再用它！
     }
 }
 rootProject.name = "MockDevice"
