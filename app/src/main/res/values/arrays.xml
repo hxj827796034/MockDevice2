@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 定义推荐作用域的应用包名 -->
+    <string-array name="xposed_scope">
+        <item>com.immomo.momo</item>
+        <item>com.immomo.young</item>
+    </string-array>
+</resources>
