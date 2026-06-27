@@ -45,6 +45,6 @@ android {
 }
 
 dependencies {
-    // ❌ 删掉所有网络依赖，改用本地 libs 文件夹里的 jar
+    // 直接读取本地 libs 目录下的 jar 包，再也不依赖任何网络！
     compileOnly fileTree(dir: 'libs', include: ['*.jar'])
 }
