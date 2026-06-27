@@ -24,12 +24,6 @@ jobs:
       with:
         gradle-version: 8.4
 
-    # ✅ 核心：直接下载 Xposed API 82 jar 放到 libs 目录下，解决找不到依赖的问题
-    - name: Download Xposed API
-      run: |
-        mkdir -p app/libs
-        wget -O app/libs/api-82.jar https://repo1.maven.org/maven2/de/robv/android/xposed/api/82/api-82.jar
-
     - name: Set up Android SDK
       uses: android-actions/setup-android@v3
       with:
