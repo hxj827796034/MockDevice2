@@ -45,6 +45,6 @@ android {
 }
 
 dependencies {
-    // 这里换成专门针对 LSPosed 的 API 库 (对应你截图里的 API 102)
-    compileOnly 'io.github.lsposed:api:102'
+    // ✅ 这里换为最稳定的 Xposed 89 版本！再也不会有 401 错误了！
+    compileOnly 'de.robv.android.xposed:api:89'
 }
