@@ -44,7 +44,4 @@ android {
     }
 }
 
-dependencies {
-    // 直接读取本地 libs 目录下的 jar 包，再也不依赖任何网络！
-    compileOnly fileTree(dir: 'libs', include: ['*.jar'])
-}
+// ✅ 彻底删除 dependencies 块，不再依赖任何外部 jar！
