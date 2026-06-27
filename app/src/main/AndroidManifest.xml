@@ -2,12 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application android:allowBackup="false" android:label="MockDevice">
         
-        <!-- 必须的三项 Xposed 元数据 -->
         <meta-data android:name="xposedmodule" android:value="true" />
         <meta-data android:name="xposeddescription" android:value="陌陌风控伪装模块" />
         <meta-data android:name="xposedminversion" android:value="82" />
 
-        <!-- ✅ 核心新增：定义推荐作用域，指向 res/values/arrays.xml 中的字符串数组 -->
+        <!-- 推荐作用域：让你在 LSPosed 里能直接勾选陌陌 -->
         <meta-data
             android:name="xposedscope"
             android:resource="@array/xposed_scope" />
