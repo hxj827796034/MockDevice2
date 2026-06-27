@@ -45,6 +45,6 @@ android {
 }
 
 dependencies {
-    // ✅ 使用官方 Maven 仓库中最稳定的版本，彻底告别 401 报错
-    compileOnly 'de.robv.android.xposed:api:82'
+    // ❌ 删掉所有网络依赖，改用本地 libs 文件夹里的 jar
+    compileOnly fileTree(dir: 'libs', include: ['*.jar'])
 }
