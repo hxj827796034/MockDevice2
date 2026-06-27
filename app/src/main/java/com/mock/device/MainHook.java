@@ -205,36 +205,82 @@ public class MainHook implements IXposedHookLoadPackage {
     // ---------- 伪造电话信息 ----------
     private void hookTelephony(XC_LoadPackage.LoadPackageParam p) {
         String c = "android.telephony.TelephonyManager";
-        hook(c, p, "getDeviceId", (x) -> { String v = getCfg("phone.Imei1", "phone.Imei"); if (v != null) x.setResult(v); });
-        hook(c, p, "getSubscriberId", (x) -> { String v = getCfg("phone.SubscriberId"); if (v != null) x.setResult(v); });
-        hook(c, p, "getLine1Number", (x) -> { String v = getCfg("phone.Tel", "phone.MobileNumber"); if (v != null) x.setResult(v); });
-        hook(c, p, "getSimSerialNumber", (x) -> { String v = getCfg("phone.SimSerialNumber"); if (v != null) x.setResult(v); });
-        hook(c, p, "getNetworkOperator", (x) -> { String v = getCfg("phone.NetworkOperator"); if (v != null) x.setResult(v); });
-        hook(c, p, "getSimState", (x) -> { String v = getCfg("phone.SimState"); x.setResult(v != null ? Integer.parseInt(v) : 5); });
+        try {
+            Class<?> telephonyClass = p.classLoader.loadClass(c);
+            XposedHelpers.findAndHookMethod(telephonyClass, "getDeviceId", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    String v = getCfg("phone.Imei1", "phone.Imei");
+                    if (v != null) param.setResult(v);
+                }
+            });
+            XposedHelpers.findAndHookMethod(telephonyClass, "getSubscriberId", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    String v = getCfg("phone.SubscriberId");
+                    if (v != null) param.setResult(v);
+                }
+            });
+            XposedHelpers.findAndHookMethod(telephonyClass, "getLine1Number", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    String v = getCfg("phone.Tel", "phone.MobileNumber");
+                    if (v != null) param.setResult(v);
+                }
+            });
+            XposedHelpers.findAndHookMethod(telephonyClass, "getSimSerialNumber", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    String v = getCfg("phone.SimSerialNumber");
+                    if (v != null) param.setResult(v);
+                }
+            });
+            XposedHelpers.findAndHookMethod(telephonyClass, "getNetworkOperator", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    String v = getCfg("phone.NetworkOperator");
+                    if (v != null) param.setResult(v);
+                }
+            });
+            XposedHelpers.findAndHookMethod(telephonyClass, "getSimState", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    String v = getCfg("phone.SimState");
+                    param.setResult(v != null ? Integer.parseInt(v) : 5);
+                }
+            });
+        } catch (Exception e) {
+            log("Telephony Hook 加载失败: " + e.getMessage());
+        }
     }
 
     // ---------- 伪造 WiFi 信息 ----------
     private void hookWifi(XC_LoadPackage.LoadPackageParam p) {
-        String c = "android.net.wifi.WifiInfo";
-        hook(c, p, "getMacAddress", (x) -> { String v = getCfg("phone.WifiMAC"); if (v != null) x.setResult(v); });
-        hook(c, p, "getBSSID", (x) -> { String v = getCfg("phone.BSSIDHook"); if (v == null) v = getCfg("phone.BSSID"); x.setResult(v); });
-        hook(c, p, "getSSID", (x) -> { String v = getCfg("phone.SSIDHook"); if (v == null) v = getCfg("phone.WifiName"); x.setResult(v); });
+        try {
+            Class<?> wifiInfoClass = p.classLoader.loadClass("android.net.wifi.WifiInfo");
+            XposedHelpers.findAndHookMethod(wifiInfoClass, "getMacAddress", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    String v = getCfg("phone.WifiMAC");
+                    if (v != null) param.setResult(v);
+                }
+            });
+        } catch (Exception ignored) {}
     }
 
     // ---------- 伪造 Android ID ----------
     private void hookSettings(XC_LoadPackage.LoadPackageParam p) {
         try {
-            XposedHelpers.findAndHookMethod("android.provider.Settings$Secure", p.classLoader,
-                "getString", android.content.ContentResolver.class, String.class,
-                new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        if ("android_id".equals(param.args[1])) {
-                            String v = getCfg("build.ANDROIDID", "phone.DeviceId");
-                            if (v != null) param.setResult(v);
-                        }
+            Class<?> settingsClass = p.classLoader.loadClass("android.provider.Settings$Secure");
+            XposedHelpers.findAndHookMethod(settingsClass, "getString", android.content.ContentResolver.class, String.class, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if ("android_id".equals(param.args[1])) {
+                        String v = getCfg("build.ANDROIDID", "phone.DeviceId");
+                        if (v != null) param.setResult(v);
                     }
-                });
+                }
+            });
         } catch (Exception ignored) {}
     }
 
@@ -266,61 +312,57 @@ public class MainHook implements IXposedHookLoadPackage {
 
     // ---------- 拦截命令执行 ----------
     private void hookRuntimeExec() {
-        try {
-            XposedHelpers.findAndHookMethod(Runtime.class, "exec", String.class, new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    String cmd = (String) param.args[0];
-                    if (cmd != null && (cmd.toLowerCase().contains("su") || cmd.toLowerCase().contains("magisk"))) {
-                        param.setThrowable(new SecurityException("Blocked by MockDevice"));
-                    }
+        XposedHelpers.findAndHookMethod(Runtime.class, "exec", String.class, new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam param) {
+                String cmd = (String) param.args[0];
+                if (cmd != null && (cmd.toLowerCase().contains("su") || cmd.toLowerCase().contains("magisk"))) {
+                    param.setThrowable(new SecurityException("Blocked by MockDevice"));
                 }
-            });
-        } catch (Exception ignored) {}
+            }
+        });
     }
 
     // ---------- 隐藏应用列表 ----------
     private void hookPackageManager(XC_LoadPackage.LoadPackageParam p) {
         try {
-            XposedHelpers.findAndHookMethod("android.app.ApplicationPackageManager", p.classLoader,
-                "getInstalledApplications", int.class, new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam param) {
-                        List<?> list = (List<?>) param.getResult();
-                        if (list == null) return;
-                        List<Object> filtered = new ArrayList<>();
-                        for (Object app : list) {
-                            try {
-                                String pkg = (String) XposedHelpers.getObjectField(app, "packageName");
-                                if (!pkg.toLowerCase().contains("magisk") && 
-                                    !pkg.toLowerCase().contains("xposed") &&
-                                    !pkg.toLowerCase().contains("lsposed") &&
-                                    !pkg.toLowerCase().contains("miuibbs")) {
-                                    filtered.add(app);
-                                }
-                            } catch (Exception e) {
+            Class<?> pmClass = p.classLoader.loadClass("android.app.ApplicationPackageManager");
+            XposedHelpers.findAndHookMethod(pmClass, "getInstalledApplications", int.class, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    List<?> list = (List<?>) param.getResult();
+                    if (list == null) return;
+                    List<Object> filtered = new ArrayList<>();
+                    for (Object app : list) {
+                        try {
+                            String pkg = (String) XposedHelpers.getObjectField(app, "packageName");
+                            if (!pkg.toLowerCase().contains("magisk") && 
+                                !pkg.toLowerCase().contains("xposed") &&
+                                !pkg.toLowerCase().contains("lsposed") &&
+                                !pkg.toLowerCase().contains("miuibbs")) {
                                 filtered.add(app);
                             }
+                        } catch (Exception e) {
+                            filtered.add(app);
                         }
-                        param.setResult(filtered);
                     }
-                });
+                    param.setResult(filtered);
+                }
+            });
         } catch (Exception ignored) {}
     }
 
     // ---------- 伪造 File.exists ----------
     private void hookFileOperations() {
-        try {
-            XposedHelpers.findAndHookMethod(File.class, "exists", new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    String path = ((File) param.thisObject).getAbsolutePath();
-                    if (path != null && (path.contains("magisk") || path.contains("su") || path.contains("xposed"))) {
-                        param.setResult(false);
-                    }
+        XposedHelpers.findAndHookMethod(File.class, "exists", new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam param) {
+                String path = ((File) param.thisObject).getAbsolutePath();
+                if (path != null && (path.contains("magisk") || path.contains("su") || path.contains("xposed"))) {
+                    param.setResult(false);
                 }
-            });
-        } catch (Exception ignored) {}
+            }
+        });
     }
 
     private void hookSELinux() {
@@ -336,27 +378,25 @@ public class MainHook implements IXposedHookLoadPackage {
     }
 
     private void hookDebugDetection() {
-        try {
-            XposedHelpers.findAndHookMethod(android.os.Debug.class, "isDebuggerConnected", new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    param.setResult(false);
-                }
-            });
-        } catch (Exception ignored) {}
+        XposedHelpers.findAndHookMethod(android.os.Debug.class, "isDebuggerConnected", new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam param) {
+                param.setResult(false);
+            }
+        });
     }
 
     private void hookBluetooth(XC_LoadPackage.LoadPackageParam p) {
         try {
             String mac = getCfg("phone.BlueToothMAC");
             if (mac != null) {
-                XposedHelpers.findAndHookMethod("android.bluetooth.BluetoothAdapter", p.classLoader,
-                    "getAddress", new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam param) {
-                            param.setResult(mac);
-                        }
-                    });
+                Class<?> btClass = p.classLoader.loadClass("android.bluetooth.BluetoothAdapter");
+                XposedHelpers.findAndHookMethod(btClass, "getAddress", new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        param.setResult(mac);
+                    }
+                });
             }
         } catch (Exception ignored) {}
     }
@@ -365,37 +405,21 @@ public class MainHook implements IXposedHookLoadPackage {
         try {
             String mac = getCfg("phone.WifiMAC");
             if (mac != null) {
-                XposedHelpers.findAndHookMethod("java.net.NetworkInterface", p.classLoader,
-                    "getHardwareAddress", new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam param) {
-                            try {
-                                String[] parts = mac.split(":");
-                                byte[] bytes = new byte[6];
-                                for (int i = 0; i < 6; i++) {
-                                    bytes[i] = (byte) Integer.parseInt(parts[i], 16);
-                                }
-                                param.setResult(bytes);
-                            } catch (Exception ignored) {}
-                        }
-                    });
+                Class<?> niClass = p.classLoader.loadClass("java.net.NetworkInterface");
+                XposedHelpers.findAndHookMethod(niClass, "getHardwareAddress", new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        try {
+                            String[] parts = mac.split(":");
+                            byte[] bytes = new byte[6];
+                            for (int i = 0; i < 6; i++) {
+                                bytes[i] = (byte) Integer.parseInt(parts[i], 16);
+                            }
+                            param.setResult(bytes);
+                        } catch (Exception ignored) {}
+                    }
+                });
             }
         } catch (Exception ignored) {}
-    }
-
-    // ---------- 简化 Hook 工具 ----------
-    private void hook(String cls, XC_LoadPackage.LoadPackageParam p, String method, HookCallback cb) {
-        try {
-            XposedHelpers.findAndHookMethod(cls, p.classLoader, method, new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    try { cb.onHook(param); } catch (Exception ignored) {}
-                }
-            });
-        } catch (Exception ignored) {}
-    }
-
-    interface HookCallback {
-        void onHook(XC_MethodHook.MethodHookParam param);
     }
 }
