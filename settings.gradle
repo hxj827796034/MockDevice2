@@ -10,7 +10,6 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // ❌ 删掉 jitpack，永远不再用它！
     }
 }
 rootProject.name = "MockDevice"
