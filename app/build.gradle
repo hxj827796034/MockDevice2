@@ -42,6 +42,11 @@ android {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
-}
 
-// ✅ 彻底删除 dependencies 块，不再依赖任何外部 jar！
+    // ✅ 终极修复：强制 GitHub Actions 把 assets 文件夹打包进 APK
+    sourceSets {
+        main {
+            assets.srcDirs = ['src/main/assets']
+        }
+    }
+}
