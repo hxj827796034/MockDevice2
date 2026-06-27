@@ -10,7 +10,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url 'https://api.xposed.info/' }
+        // 使用专门针对 LSPosed 的 API 仓库
+        maven { url 'https://jitpack.io' }
     }
 }
 rootProject.name = "MockDevice"
