@@ -1,7 +1,6 @@
 package de.robv.android.xposed;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 
 public class XposedHelpers {
     public static Object getObjectField(Object obj, String fieldName) {
@@ -14,8 +13,7 @@ public class XposedHelpers {
         }
     }
     
-    // 修复：参数改成 (Class<?> clazz, String methodName, Object... parameterTypesAndCallback)
     public static void findAndHookMethod(Class<?> clazz, String methodName, Object... parameterTypesAndCallback) {
-        // 空壳方法，只用于编译通过，运行时由 LSPosed 接管
+        // 空壳，仅用于编译通过
     }
 }
