@@ -14,7 +14,8 @@ public class XposedHelpers {
         }
     }
     
-    public static void findAndHookMethod(String className, ClassLoader classLoader, String methodName, Object... parameterTypesAndCallback) {
-        // LSPosed 在运行时动态替换此方法，我们只需要编译通过即可
+    // 修复：参数改成 (Class<?> clazz, String methodName, Object... parameterTypesAndCallback)
+    public static void findAndHookMethod(Class<?> clazz, String methodName, Object... parameterTypesAndCallback) {
+        // 空壳方法，只用于编译通过，运行时由 LSPosed 接管
     }
 }
