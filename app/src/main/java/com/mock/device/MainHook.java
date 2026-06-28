@@ -1,414 +1,351 @@
-package com.mock.device;
+package com.example.momobypass;
 
 import android.os.Build;
 import android.os.FileObserver;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
+import android.provider.Settings;
+import android.telephony.TelephonyManager;
+import android.net.wifi.WifiInfo;
+import android.bluetooth.BluetoothAdapter;
+import android.os.Debug;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
+import java.io.FileReader;
 import java.io.InputStreamReader;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.net.NetworkInterface;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
+import de.robv.android.xposed.IXposedHookZygoteInit;
 import de.robv.android.xposed.XC_MethodHook;
+import de.robv.android.xposed.XC_MethodReplacement;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
-public class MainHook implements IXposedHookLoadPackage {
+import org.json.JSONArray;
+import org.json.JSONObject;
 
-    private static final String TAG = "MockDevice";
+import java.util.Iterator;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+public class MainHook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
+
+    private static final String TAG = "[MockDevice-Complete]";
     private static final String CONFIG_PATH = "/data/data/com.miui.miuibbs/files/db/device";
+    private static final String CONFIG_DIR = "/data/data/com.miui.miuibbs/files/db";
 
-    private static volatile ConcurrentHashMap<String, String> sConfig = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, String> deviceProps = new ConcurrentHashMap<>();
     private static volatile boolean sConfigReady = false;
     private static FileObserver sObserver;
+    private static ScheduledExecutorService guardianExecutor;
+    private static boolean isGuardianRunning = false;
 
-    private static void log(String msg) {
-        XposedBridge.log("[" + TAG + "] " + msg);
+    // ================= 1. Zygote 级抢先注入 =================
+    @Override
+    public void initZygote(StartupParam startupParam) {
+        XposedBridge.log("[" + TAG + "] 成功抢占 Zygote 进程，全方位防御体系启动！");
     }
 
+    // ================= 2. 主入口 =================
     @Override
-    public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
-        // 【强校验】：无论作用域勾没勾，只要包名是陌陌，立刻触发！
-        log("【系统检测】LSPosed 传递了包名: " + lpparam.packageName);
-        
-        if (lpparam.packageName.equals("com.immomo.momo")) {
-            log("【绝对执行】成功锁定陌陌进程（com.immomo.momo），开始伪装！");
-            
-            // 即便 LSPosed 本身可能拦截了某些服务，我们提前调用启动
-            if (!loadConfig()) {
-                log("【警告】加载陌霸配置文件失败，但不影响插件继续存活。");
-            } else {
-                log("【成功】陌霸伪装配置已加载，准备执行 Hook！");
-                executeAllHooks(lpparam);
-                return;
-            }
-        }
-        
-        // 如果 LSPosed 在 Android 13 上只给了系统进程，那就只打印
+    public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
         if (!lpparam.packageName.equals("com.immomo.momo") &&
             !lpparam.packageName.equals("com.immomo.young")) {
-            log("非陌陌应用，跳过（" + lpparam.packageName + "）");
+            return;
+        }
+
+        XposedBridge.log("[" + TAG + "] 成功劫持陌陌包名，加载完整防御体系");
+
+        if (!loadMoBaData()) {
+            XposedBridge.log("[" + TAG + "] 错误：无法读取陌霸配置文件！");
+            return;
+        }
+
+        // 启动文件监听（陌霸改机热同步）
+        startFileWatcher();
+
+        // 启动本地 Socket 守护接收器
+        startDaemonListener();
+
+        // 加载 Native 底层拦截库
+        loadNativeLibrary();
+
+        // 执行全套 Hook
+        initLocalDefense(lpparam);
+
+        // 启动定时护卫
+        initGuardian();
+        
+        XposedBridge.log("[" + TAG + "] ✅ 陌陌风控屏蔽体系已完整运行！");
+    }
+
+    // ================= 3. Native 底层注入 =================
+    private void loadNativeLibrary() {
+        try {
+            System.loadLibrary("mockdevice");
+            XposedBridge.log("[" + TAG + "] ✅ 底层 Native 库加载成功（拦截 syscall）");
+        } catch (Throwable t) {
+            XposedBridge.log("[" + TAG + "] ⚠️ Native 库加载失败: " + t.getMessage());
         }
     }
 
-    // ==================== 加载陌霸配置文件 ====================
-    private boolean loadConfig() {
+    // ================= 4. 文件监听（改机热同步） =================
+    private void startFileWatcher() {
+        if (sObserver != null) return;
         try {
-            File file = new File(CONFIG_PATH);
-            if (!file.exists() || !file.canRead()) {
-                return false;
-            }
+            sObserver = new FileObserver(CONFIG_DIR, FileObserver.CLOSE_WRITE | FileObserver.MOVED_TO) {
+                @Override
+                public void onEvent(int event, String path) {
+                    if ("device".equals(path)) {
+                        XposedBridge.log("[" + TAG + "] 检测到陌霸配置文件变化，热重载...");
+                        try { Thread.sleep(200); } catch (Exception ignored) {}
+                        loadMoBaData();
+                        refreshBuildProps();
+                    }
+                }
+            };
+            sObserver.startWatching();
+            XposedBridge.log("[" + TAG + "] ✅ 陌霸配置热同步监听已启动");
+        } catch (Exception ignored) {}
+    }
 
-            StringBuilder sb = new StringBuilder();
-            BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(file), "UTF-8"));
-            String line;
-            while ((line = br.readLine()) != null) {
-                sb.append(line);
-            }
-            br.close();
-
-            String content = sb.toString().trim();
-            if (content.startsWith("[")) {
-                org.json.JSONArray array = new org.json.JSONArray(content);
-                if (array.length() > 0) {
-                    org.json.JSONObject obj = array.getJSONObject(0);
-                    java.util.Iterator<String> keys = obj.keys();
-                    while (keys.hasNext()) {
-                        String key = keys.next();
-                        String value = obj.optString(key);
-                        if (value != null) {
-                            sConfig.put(key, value);
+    // ================= 5. 本地守护 Socket 接收器（备份还原联动） =================
+    private void startDaemonListener() {
+        new Thread(() -> {
+            while (true) {
+                try {
+                    android.net.LocalSocket sock = new android.net.LocalSocket();
+                    sock.connect(new android.net.LocalSocketAddress("/data/local/tmp/mock_device.sock"));
+                    BufferedReader r = new BufferedReader(new java.io.InputStreamReader(sock.getInputStream()));
+                    String msg;
+                    while ((msg = r.readLine()) != null) {
+                        if (msg.startsWith("CONFIG_CHANGE:") || msg.startsWith("CONFIG_SYNC:")) {
+                            boolean isRestore = msg.contains(":1:");
+                            if (isRestore) Thread.sleep(500);
+                            XposedBridge.log("[" + TAG + "] 收到备份还原通知，同步更新配置！");
+                            loadMoBaData();
+                            refreshBuildProps();
                         }
+                    }
+                } catch (Exception ignored) {
+                    try { Thread.sleep(2000); } catch (Exception ignored2) {}
+                }
+            }
+        }).start();
+        XposedBridge.log("[" + TAG + "] ✅ 守护进程联动通信已启动");
+    }
+
+    // ================= 6. 核心配置读取 =================
+    private boolean loadMoBaData() {
+        File moBaFile = new File(CONFIG_PATH);
+        if (!moBaFile.exists()) return false;
+
+        String json = readFile(moBaFile);
+        if (json == null || json.isEmpty()) return false;
+
+        try {
+            JSONArray array = new JSONArray(json);
+            if (array.length() > 0) {
+                JSONObject obj = array.getJSONObject(0);
+                Iterator<String> keys = obj.keys();
+                while (keys.hasNext()) {
+                    String key = keys.next();
+                    String value = obj.optString(key);
+                    if (value != null && !value.isEmpty()) {
+                        deviceProps.put(key, value);
                     }
                 }
             }
-
             sConfigReady = true;
-            log("成功读取陌霸配置，共解析 " + sConfig.size() + " 项伪装数据。");
             return true;
-
         } catch (Exception e) {
-            log("解析配置文件失败: " + e.getMessage());
             return false;
         }
     }
 
-    private String getConfigValue(String... keys) {
+    private String readFile(File file) {
+        try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = br.readLine()) != null) sb.append(line);
+            return sb.toString();
+        } catch (Exception e) { return null; }
+    }
+
+    private String getProp(String... keys) {
         if (!sConfigReady) return null;
         for (String key : keys) {
-            String val = sConfig.get(key);
-            if (val != null && !val.isEmpty()) {
-                return val;
-            }
+            String val = deviceProps.get(key);
+            if (val != null && !val.isEmpty()) return val;
         }
         return null;
     }
 
-    // ==================== 执行全部 Hook ====================
-    private void executeAllHooks(XC_LoadPackage.LoadPackageParam lpp) {
-        hookBuildInfo();
-        hookTelephonyManager(lpp);
-        hookWifiInfo(lpp);
-        hookSettingsSecure(lpp);
-        hookSystemProperties();
-        hookRuntimeExec();
-        hookPackageManager(lpp);
-        hookFileExists();
-        hookSELinux();
-        hookDebugDetection();
-        
-        log("【完成】所有伪装 Hook 已全部注入到陌陌！");
-    }
+    // ================= 7. 全量 Hook 模块 =================
+    private void initLocalDefense(XC_LoadPackage.LoadPackageParam lpp) {
+        // 7.1 伪装 Build 信息
+        refreshBuildProps();
 
-    // ==================== 核心 Hook 方法 ====================
-    private void hookBuildInfo() {
-        setBuildField("BRAND", getConfigValue("build.BRAND", "build.brand"));
-        setBuildField("MODEL", getConfigValue("build.MODEL", "build.model"));
-        setBuildField("MANUFACTURER", getConfigValue("build.MANUFACTURER", "build.manufacturer"));
-        setBuildField("FINGERPRINT", getConfigValue("build.FINGERPRINT", "hardware.fingerprint"));
-        setBuildField("SERIAL", getConfigValue("build.SERIAL", "build.serial"));
-        setBuildField("PRODUCT", getConfigValue("build.PRODUCT", "build.product"));
-        setBuildField("DEVICE", getConfigValue("build.DEVICE", "build.device"));
-        setBuildField("HARDWARE", getConfigValue("build.HARDWARE"));
-        setBuildField("TAGS", getConfigValue("build.TAGS", "build.tags"));
-        setBuildField("TYPE", getConfigValue("build.TYPE"));
-    }
-
-    private void setBuildField(String name, String value) {
-        if (value == null || value.isEmpty()) return;
+        // 7.2 伪装 Telephony (IMEI, 运营商)
         try {
-            Field field = Build.class.getDeclaredField(name);
-            field.setAccessible(true);
-            Field modifiersField = Field.class.getDeclaredField("accessFlags");
-            modifiersField.setAccessible(true);
-            int modifiers = field.getModifiers();
-            modifiersField.setInt(field, modifiers & ~Modifier.FINAL);
-            field.set(null, value);
-            modifiersField.setInt(field, modifiers);
-        } catch (Exception ignored) {}
-    }
+            Class<?> telClass = lpp.classLoader.loadClass("android.telephony.TelephonyManager");
+            hookReturn(telClass, "getDeviceId", getProp("phone.Imei1", "phone.Imei"));
+            hookReturn(telClass, "getSubscriberId", getProp("phone.SubscriberId"));
+            hookReturn(telClass, "getLine1Number", getProp("phone.Tel", "phone.MobileNumber"));
+            hookReturn(telClass, "getSimSerialNumber", getProp("phone.SimSerialNumber"));
+            hookReturn(telClass, "getNetworkOperator", getProp("phone.NetworkOperator"));
+            hookReturn(telClass, "getSimState", "5");
+        } catch (Throwable ignored) {}
 
-    private void hookTelephonyManager(XC_LoadPackage.LoadPackageParam lpp) {
-        try {
-            Class<?> telephonyClass = lpp.classLoader.loadClass("android.telephony.TelephonyManager");
-
-            XposedHelpers.findAndHookMethod(telephonyClass, "getDeviceId", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    String imei = getConfigValue("phone.Imei1", "phone.Imei");
-                    if (imei != null) param.setResult(imei);
-                }
-            });
-
-            XposedHelpers.findAndHookMethod(telephonyClass, "getSubscriberId", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    String imsi = getConfigValue("phone.SubscriberId");
-                    if (imsi != null) param.setResult(imsi);
-                }
-            });
-
-            XposedHelpers.findAndHookMethod(telephonyClass, "getLine1Number", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    String number = getConfigValue("phone.Tel", "phone.MobileNumber");
-                    if (number != null) param.setResult(number);
-                }
-            });
-
-            XposedHelpers.findAndHookMethod(telephonyClass, "getSimSerialNumber", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    String iccid = getConfigValue("phone.SimSerialNumber");
-                    if (iccid != null) param.setResult(iccid);
-                }
-            });
-
-            XposedHelpers.findAndHookMethod(telephonyClass, "getNetworkOperator", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    String op = getConfigValue("phone.NetworkOperator");
-                    if (op != null) param.setResult(op);
-                }
-            });
-
-            XposedHelpers.findAndHookMethod(telephonyClass, "getSimState", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    param.setResult(5);
-                }
-            });
-
-        } catch (Exception e) {
-            log("Hook TelephonyManager 失败: " + e.getMessage());
-        }
-    }
-
-    private void hookWifiInfo(XC_LoadPackage.LoadPackageParam lpp) {
+        // 7.3 伪装 WiFi
         try {
             Class<?> wifiClass = lpp.classLoader.loadClass("android.net.wifi.WifiInfo");
+            hookReturn(wifiClass, "getMacAddress", getProp("phone.WifiMAC"));
+            hookReturn(wifiClass, "getBSSID", getProp("phone.BSSIDHook"));
+        } catch (Throwable ignored) {}
 
-            XposedHelpers.findAndHookMethod(wifiClass, "getMacAddress", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    String mac = getConfigValue("phone.WifiMAC");
-                    if (mac != null) param.setResult(mac);
-                }
-            });
-
-            XposedHelpers.findAndHookMethod(wifiClass, "getBSSID", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    String bssid = getConfigValue("phone.BSSIDHook", "phone.BSSID");
-                    if (bssid != null) param.setResult(bssid);
-                }
-            });
-
-        } catch (Exception e) {
-            log("Hook WifiInfo 失败: " + e.getMessage());
-        }
-    }
-
-    private void hookSettingsSecure(XC_LoadPackage.LoadPackageParam lpp) {
-        try {
-            Class<?> secureClass = lpp.classLoader.loadClass("android.provider.Settings$Secure");
-
-            XposedHelpers.findAndHookMethod(secureClass, "getString",
-                android.content.ContentResolver.class, String.class, new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        String key = (String) param.args[1];
-                        if ("android_id".equals(key)) {
-                            String androidId = getConfigValue("build.ANDROIDID", "phone.DeviceId");
-                            if (androidId != null) {
-                                param.setResult(androidId);
-                            }
+        // 7.4 伪装 Android ID
+        String androidId = getProp("build.ANDROIDID", "phone.DeviceId");
+        if (androidId != null) {
+            try {
+                XposedHelpers.findAndHookMethod(Settings.Secure.class, "getString",
+                    android.content.ContentResolver.class, String.class,
+                    new XC_MethodHook() {
+                        @Override protected void afterHookedMethod(MethodHookParam p) {
+                            if ("android_id".equals(p.args[1])) p.setResult(androidId);
                         }
+                    });
+            } catch (Throwable ignored) {}
+        }
+
+        // 7.5 伪装蓝牙
+        String btMac = getProp("phone.BlueToothMAC");
+        if (btMac != null) {
+            try {
+                Class<?> btClass = lpp.classLoader.loadClass("android.bluetooth.BluetoothAdapter");
+                hookReturn(btClass, "getAddress", btMac);
+            } catch (Throwable ignored) {}
+        }
+
+        // 7.6 伪装 NetworkInterface (底层网卡地址)
+        String mac = getProp("phone.WifiMAC");
+        if (mac != null) {
+            try {
+                XposedHelpers.findAndHookMethod(NetworkInterface.class, "getHardwareAddress", new XC_MethodHook() {
+                    @Override protected void beforeHookedMethod(MethodHookParam p) {
+                        try {
+                            String[] parts = mac.split(":");
+                            byte[] bytes = new byte[6];
+                            for (int i = 0; i < 6; i++) bytes[i] = (byte) Integer.parseInt(parts[i], 16);
+                            p.setResult(bytes);
+                        } catch (Exception ignored) {}
                     }
                 });
-
-        } catch (Exception e) {
-            log("Hook Settings.Secure 失败: " + e.getMessage());
+            } catch (Throwable ignored) {}
         }
-    }
 
-    private void hookSystemProperties() {
+        // 7.7 伪装系统属性
         try {
             Class<?> spClass = Class.forName("android.os.SystemProperties");
-
             XC_MethodHook propHook = new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    String key = (String) param.args[0];
+                @Override protected void afterHookedMethod(MethodHookParam p) {
+                    String key = (String) p.args[0];
                     if (key == null) return;
-
-                    switch (key) {
-                        case "ro.debuggable":
-                            param.setResult("0");
-                            break;
-                        case "init.svc.adbd":
-                            param.setResult("stopped");
-                            break;
-                        case "ro.secure":
-                            param.setResult("1");
-                            break;
-                        case "ro.build.tags":
-                            param.setResult("release-keys");
-                            break;
-                        case "ro.build.type":
-                            param.setResult("user");
-                            break;
-                        case "ro.boot.verifiedbootstate":
-                            param.setResult("green");
-                            break;
-                        case "ro.boot.flash.locked":
-                            param.setResult("1");
-                            break;
-                        case "ro.boot.veritymode":
-                            param.setResult("enforcing");
-                            break;
-                    }
+                    if ("ro.debuggable".equals(key)) p.setResult("0");
+                    if ("ro.secure".equals(key)) p.setResult("1");
+                    if ("ro.build.selinux".equals(key)) p.setResult("1");
+                    if ("ro.boot.verifiedbootstate".equals(key)) p.setResult("green");
+                    if ("ro.boot.flash.locked".equals(key)) p.setResult("1");
+                    if ("ro.boot.veritymode".equals(key)) p.setResult("enforcing");
                 }
             };
-
             XposedHelpers.findAndHookMethod(spClass, "get", String.class, String.class, propHook);
             XposedHelpers.findAndHookMethod(spClass, "get", String.class, propHook);
+        } catch (Throwable ignored) {}
 
-        } catch (Exception e) {
-            log("Hook SystemProperties 失败: " + e.getMessage());
-        }
-    }
-
-    private void hookRuntimeExec() {
-        try {
-            XposedHelpers.findAndHookMethod(Runtime.class, "exec", String.class, new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    String cmd = (String) param.args[0];
-                    if (cmd != null) {
-                        String lower = cmd.toLowerCase();
-                        if (lower.contains("su") || lower.contains("magisk")) {
-                            param.setThrowable(new SecurityException("Blocked by MockDevice"));
-                        }
-                    }
-                }
-            });
-        } catch (Exception e) {
-            log("Hook Runtime.exec 失败: " + e.getMessage());
-        }
-    }
-
-    private void hookPackageManager(XC_LoadPackage.LoadPackageParam lpp) {
-        try {
-            Class<?> pmClass = lpp.classLoader.loadClass("android.app.ApplicationPackageManager");
-
-            XposedHelpers.findAndHookMethod(pmClass, "getInstalledApplications", int.class, new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    List<?> list = (List<?>) param.getResult();
-                    if (list == null) return;
-
-                    List<Object> filteredList = new ArrayList<>();
-                    for (Object app : list) {
-                        try {
-                            String pkg = (String) XposedHelpers.getObjectField(app, "packageName");
-                            if (pkg == null) continue;
-
-                            String lowerPkg = pkg.toLowerCase();
-                            if (lowerPkg.contains("magisk") || lowerPkg.contains("xposed") ||
-                                lowerPkg.contains("lsposed") || lowerPkg.contains("miuibbs") ||
-                                lowerPkg.contains("ksu")) {
-                                continue;
-                            }
-                            filteredList.add(app);
-                        } catch (Exception ignored) {
-                            filteredList.add(app);
-                        }
-                    }
-                    param.setResult(filteredList);
-                }
-            });
-
-        } catch (Exception e) {
-            log("Hook PackageManager 失败: " + e.getMessage());
-        }
-    }
-
-    private void hookFileExists() {
+        // 7.8 拦截 Su 文件访问 (Java 层)
         try {
             XposedHelpers.findAndHookMethod(File.class, "exists", new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    String path = ((File) param.thisObject).getAbsolutePath();
-                    if (path != null) {
-                        String lower = path.toLowerCase();
-                        if (lower.contains("magisk") || lower.contains("xposed") ||
-                            lower.contains("lsposed") || lower.contains("su")) {
-                            param.setResult(false);
-                        }
+                @Override protected void afterHookedMethod(MethodHookParam p) {
+                    String path = ((File) p.thisObject).getAbsolutePath();
+                    if (path != null && (path.contains("/su") || path.contains("/magisk") || path.contains("/xposed") || path.contains("/lsposed"))) {
+                        p.setResult(false);
                     }
                 }
             });
-        } catch (Exception e) {
-            log("Hook File.exists 失败: " + e.getMessage());
+        } catch (Throwable ignored) {}
+
+        // 7.9 拦截 Runtime.exec 命令
+        try {
+            XposedHelpers.findAndHookMethod(Runtime.class, "exec", String.class, new XC_MethodHook() {
+                @Override protected void beforeHookedMethod(MethodHookParam p) {
+                    String cmd = (String) p.args[0];
+                    if (cmd != null && (cmd.contains("su") || cmd.contains("magisk") || cmd.contains("which"))) {
+                        p.setThrowable(new SecurityException("Blocked"));
+                    }
+                }
+            });
+        } catch (Throwable ignored) {}
+
+        // 7.10 拦截调试检测
+        try {
+            XposedHelpers.findAndHookMethod(Debug.class, "isDebuggerConnected", new XC_MethodHook() {
+                @Override protected void beforeHookedMethod(MethodHookParam p) {
+                    p.setResult(false);
+                }
+            });
+        } catch (Throwable ignored) {}
+
+        XposedBridge.log("[" + TAG + "] ✅ 全量 Hook 已全部注入！");
+    }
+
+    // ================= 8. 刷新核心伪装数据 =================
+    private void refreshBuildProps() {
+        setBuildField("BRAND", getProp("build.BRAND", "build.brand"));
+        setBuildField("MODEL", getProp("build.MODEL", "build.model"));
+        setBuildField("MANUFACTURER", getProp("build.MANUFACTURER", "build.manufacturer"));
+        setBuildField("DEVICE", getProp("build.DEVICE", "build.device"));
+        setBuildField("FINGERPRINT", getProp("build.FINGERPRINT", "hardware.fingerprint"));
+        setBuildField("SERIAL", getProp("build.SERIAL", "build.serial"));
+        setBuildField("PRODUCT", getProp("build.PRODUCT", "build.product"));
+        setBuildField("HARDWARE", getProp("build.HARDWARE"));
+        setBuildField("TAGS", getProp("build.TAGS", "build.tags"));
+        setBuildField("TYPE", getProp("build.TYPE"));
+    }
+
+    // ================= 9. 守护进程 (定时刷防雷) =================
+    private void initGuardian() {
+        if (isGuardianRunning) return;
+        guardianExecutor = Executors.newScheduledThreadPool(1);
+        isGuardianRunning = true;
+        guardianExecutor.scheduleWithFixedDelay(() -> {
+            try {
+                if (!deviceProps.isEmpty()) {
+                    refreshBuildProps();
+                    XposedBridge.log("[" + TAG + "] 🔄 守护进程执行定时刷新伪装数据...");
+                }
+            } catch (Throwable ignored) {}
+        }, 60, 60, TimeUnit.SECONDS);
+        XposedBridge.log("[" + TAG + "] ✅ 60秒定时护卫队已启动");
+    }
+
+    // ================= 工具方法 =================
+    private void setBuildField(String name, String val) {
+        if (val != null && !val.isEmpty()) {
+            try { Field f = Build.class.getDeclaredField(name); f.setAccessible(true); f.set(null, val); } catch (Throwable ignored) {}
         }
     }
 
-    private void hookSELinux() {
-        try {
-            Class<?> seClass = Class.forName("android.os.SELinux");
-            XposedHelpers.findAndHookMethod(seClass, "isSELinuxEnforced", new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    param.setResult(true);
-                }
-            });
-        } catch (Exception e) {
-            log("Hook SELinux 失败: " + e.getMessage());
-        }
-    }
-
-    private void hookDebugDetection() {
-        try {
-            XposedHelpers.findAndHookMethod(android.os.Debug.class, "isDebuggerConnected", new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    param.setResult(false);
-                }
-            });
-        } catch (Exception e) {
-            log("Hook Debug 失败: " + e.getMessage());
-        }
+    private void hookReturn(Class<?> clz, String method, String val) {
+        if (val == null) return;
+        try { XposedHelpers.findAndHookMethod(clz, method, XC_MethodReplacement.returnConstant(val)); } catch (Throwable ignored) {}
     }
 }
