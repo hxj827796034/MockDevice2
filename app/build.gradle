@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace 'com.ultimate.momo.defender'
+    namespace 'com.example.momobypass'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.ultimate.momo.defender"
+        applicationId "com.example.momobypass"
         minSdk 26
         targetSdk 34
         versionCode 1
