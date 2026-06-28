@@ -1,7 +1,6 @@
 cmake_minimum_required(VERSION 3.22.1)
 project("mockdevice")
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_compile_options(-fvisibility=hidden -O2)
 add_library(mockdevice SHARED module.cpp)
 target_link_libraries(mockdevice log)
