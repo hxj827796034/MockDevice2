@@ -5,12 +5,16 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
         mavenCentral()
+        maven { url 'https://api.xposed.info/' }
+        maven { url 'https://jitpack.io' }
     }
 }
-rootProject.name = "MockDevice"
+
+rootProject.name = "MockDevice" // 项目名保持你自己的
 include ':app'
