@@ -3,12 +3,12 @@ plugins {
 }
 
 android {
-    namespace 'com.mock.device'
+    namespace 'com.example.momobypass' // 使用你成功案例的包名
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.mock.device"
-        minSdk 27
+        applicationId "com.example.momobypass"
+        minSdk 26
         targetSdk 34
         versionCode 1
         versionName "1.0"
@@ -42,11 +42,9 @@ android {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
+}
 
-    // ✅ 终极修复：强制 GitHub Actions 把 assets 文件夹打包进 APK
-    sourceSets {
-        main {
-            assets.srcDirs = ['src/main/assets']
-        }
-    }
+dependencies {
+    // 沿用你成功案例的配置
+    compileOnly 'de.robv.android.xposed:api:82'
 }
