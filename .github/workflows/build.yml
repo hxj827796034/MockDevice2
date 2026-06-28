@@ -40,9 +40,8 @@ jobs:
     - name: Build APK
       run: gradle assembleRelease
 
-        - name: Upload APK
+    - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: MockDevice-APK
-        # 这里改成 *.apk，无论生成什么名字都能抓到
         path: app/build/outputs/apk/release/*.apk
