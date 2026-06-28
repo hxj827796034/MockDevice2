@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace 'com.verify.momo'
+    namespace 'com.ultimate.momo.defender'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.verify.momo"
+        applicationId "com.ultimate.momo.defender"
         minSdk 26
         targetSdk 34
         versionCode 1
