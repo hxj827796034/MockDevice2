@@ -13,7 +13,6 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.InputStreamReader;
 import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.net.NetworkInterface;
 import java.util.ArrayList;
 import java.util.List;
@@ -48,13 +47,11 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
     private static ScheduledExecutorService guardianExecutor;
     private static boolean isGuardianRunning = false;
 
-    // ================= 1. Zygote 级抢先注入 =================
     @Override
     public void initZygote(StartupParam startupParam) {
-        XposedBridge.log("[" + TAG + "] 成功抢占 Zygote 进程，全方位防御体系启动！");
+        XposedBridge.log("[" + TAG + "] 成功抢占 Zygote 进程，防御体系启动！");
     }
 
-    // ================= 2. 主入口 =================
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
         if (!lpparam.packageName.equals("com.immomo.momo") &&
@@ -69,35 +66,24 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             return;
         }
 
-        // 启动文件监听（陌霸改机热同步）
         startFileWatcher();
-
-        // 启动本地 Socket 守护接收器
         startDaemonListener();
-
-        // 加载 Native 底层拦截库
         loadNativeLibrary();
-
-        // 执行全套 Hook
         initLocalDefense(lpparam);
-
-        // 启动定时护卫
         initGuardian();
         
         XposedBridge.log("[" + TAG + "] ✅ 陌陌风控屏蔽体系已完整运行！");
     }
 
-    // ================= 3. Native 底层注入 =================
     private void loadNativeLibrary() {
         try {
             System.loadLibrary("mockdevice");
-            XposedBridge.log("[" + TAG + "] ✅ 底层 Native 库加载成功（拦截 syscall）");
+            XposedBridge.log("[" + TAG + "] ✅ 底层 Native 库加载成功");
         } catch (Throwable t) {
             XposedBridge.log("[" + TAG + "] ⚠️ Native 库加载失败: " + t.getMessage());
         }
     }
 
-    // ================= 4. 文件监听（改机热同步） =================
     private void startFileWatcher() {
         if (sObserver != null) return;
         try {
@@ -117,7 +103,6 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         } catch (Exception ignored) {}
     }
 
-    // ================= 5. 本地守护 Socket 接收器（备份还原联动） =================
     private void startDaemonListener() {
         new Thread(() -> {
             while (true) {
@@ -143,7 +128,6 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         XposedBridge.log("[" + TAG + "] ✅ 守护进程联动通信已启动");
     }
 
-    // ================= 6. 核心配置读取 =================
     private boolean loadMoBaData() {
         File moBaFile = new File(CONFIG_PATH);
         if (!moBaFile.exists()) return false;
@@ -189,30 +173,25 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         return null;
     }
 
-    // ================= 7. 全量 Hook 模块 =================
     private void initLocalDefense(XC_LoadPackage.LoadPackageParam lpp) {
-        // 7.1 伪装 Build 信息
         refreshBuildProps();
 
-        // 7.2 伪装 Telephony (IMEI, 运营商)
         try {
             Class<?> telClass = lpp.classLoader.loadClass("android.telephony.TelephonyManager");
-            hookReturn(telClass, "getDeviceId", getProp("phone.Imei1", "phone.Imei"));
-            hookReturn(telClass, "getSubscriberId", getProp("phone.SubscriberId"));
-            hookReturn(telClass, "getLine1Number", getProp("phone.Tel", "phone.MobileNumber"));
-            hookReturn(telClass, "getSimSerialNumber", getProp("phone.SimSerialNumber"));
-            hookReturn(telClass, "getNetworkOperator", getProp("phone.NetworkOperator"));
-            hookReturn(telClass, "getSimState", "5");
+            hookReplacement(telClass, "getDeviceId", getProp("phone.Imei1", "phone.Imei"));
+            hookReplacement(telClass, "getSubscriberId", getProp("phone.SubscriberId"));
+            hookReplacement(telClass, "getLine1Number", getProp("phone.Tel", "phone.MobileNumber"));
+            hookReplacement(telClass, "getSimSerialNumber", getProp("phone.SimSerialNumber"));
+            hookReplacement(telClass, "getNetworkOperator", getProp("phone.NetworkOperator"));
+            hookReplacement(telClass, "getSimState", "5");
         } catch (Throwable ignored) {}
 
-        // 7.3 伪装 WiFi
         try {
             Class<?> wifiClass = lpp.classLoader.loadClass("android.net.wifi.WifiInfo");
-            hookReturn(wifiClass, "getMacAddress", getProp("phone.WifiMAC"));
-            hookReturn(wifiClass, "getBSSID", getProp("phone.BSSIDHook"));
+            hookReplacement(wifiClass, "getMacAddress", getProp("phone.WifiMAC"));
+            hookReplacement(wifiClass, "getBSSID", getProp("phone.BSSIDHook"));
         } catch (Throwable ignored) {}
 
-        // 7.4 伪装 Android ID
         String androidId = getProp("build.ANDROIDID", "phone.DeviceId");
         if (androidId != null) {
             try {
@@ -226,16 +205,14 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             } catch (Throwable ignored) {}
         }
 
-        // 7.5 伪装蓝牙
         String btMac = getProp("phone.BlueToothMAC");
         if (btMac != null) {
             try {
                 Class<?> btClass = lpp.classLoader.loadClass("android.bluetooth.BluetoothAdapter");
-                hookReturn(btClass, "getAddress", btMac);
+                hookReplacement(btClass, "getAddress", btMac);
             } catch (Throwable ignored) {}
         }
 
-        // 7.6 伪装 NetworkInterface (底层网卡地址)
         String mac = getProp("phone.WifiMAC");
         if (mac != null) {
             try {
@@ -252,7 +229,6 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             } catch (Throwable ignored) {}
         }
 
-        // 7.7 伪装系统属性
         try {
             Class<?> spClass = Class.forName("android.os.SystemProperties");
             XC_MethodHook propHook = new XC_MethodHook() {
@@ -271,7 +247,6 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             XposedHelpers.findAndHookMethod(spClass, "get", String.class, propHook);
         } catch (Throwable ignored) {}
 
-        // 7.8 拦截 Su 文件访问 (Java 层)
         try {
             XposedHelpers.findAndHookMethod(File.class, "exists", new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam p) {
@@ -283,7 +258,6 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             });
         } catch (Throwable ignored) {}
 
-        // 7.9 拦截 Runtime.exec 命令
         try {
             XposedHelpers.findAndHookMethod(Runtime.class, "exec", String.class, new XC_MethodHook() {
                 @Override protected void beforeHookedMethod(MethodHookParam p) {
@@ -295,7 +269,6 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             });
         } catch (Throwable ignored) {}
 
-        // 7.10 拦截调试检测
         try {
             XposedHelpers.findAndHookMethod(Debug.class, "isDebuggerConnected", new XC_MethodHook() {
                 @Override protected void beforeHookedMethod(MethodHookParam p) {
@@ -307,7 +280,6 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         XposedBridge.log("[" + TAG + "] ✅ 全量 Hook 已全部注入！");
     }
 
-    // ================= 8. 刷新核心伪装数据 =================
     private void refreshBuildProps() {
         setBuildField("BRAND", getProp("build.BRAND", "build.brand"));
         setBuildField("MODEL", getProp("build.MODEL", "build.model"));
@@ -321,7 +293,6 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         setBuildField("TYPE", getProp("build.TYPE"));
     }
 
-    // ================= 9. 守护进程 (定时刷防雷) =================
     private void initGuardian() {
         if (isGuardianRunning) return;
         guardianExecutor = Executors.newScheduledThreadPool(1);
@@ -337,14 +308,13 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         XposedBridge.log("[" + TAG + "] ✅ 60秒定时护卫队已启动");
     }
 
-    // ================= 工具方法 =================
     private void setBuildField(String name, String val) {
         if (val != null && !val.isEmpty()) {
             try { Field f = Build.class.getDeclaredField(name); f.setAccessible(true); f.set(null, val); } catch (Throwable ignored) {}
         }
     }
 
-    private void hookReturn(Class<?> clz, String method, String val) {
+    private void hookReplacement(Class<?> clz, String method, String val) {
         if (val == null) return;
         try { XposedHelpers.findAndHookMethod(clz, method, XC_MethodReplacement.returnConstant(val)); } catch (Throwable ignored) {}
     }
