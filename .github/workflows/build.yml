@@ -13,9 +13,11 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Generate Debug Keystore
+    - name: Generate Debug Keystore (in app folder)
       run: |
+        cd app
         keytool -genkey -v -keystore debug.keystore -alias debug -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=Debug, OU=Debug, O=Debug, L=Debug, ST=Debug, C=US"
+        cd ..
 
     - name: Set up JDK 17
       uses: actions/setup-java@v4
