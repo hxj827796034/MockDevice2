@@ -24,10 +24,6 @@ import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
-/**
- * 基于 LSPosed 框架（API 82）的原生 LSPosed 模块入口。
- * 必须配合 app/src/main/assets/xposed_init 使用。
- */
 public class MainHook implements IXposedHookLoadPackage {
 
     private static final String TAG = "MockDevice";
@@ -43,39 +39,27 @@ public class MainHook implements IXposedHookLoadPackage {
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
-        // 测试是否被 LSPosed 加载
-        log("== 模块被 LSPosed 成功加载 ==");
-        log("当前应用的包名是: " + lpparam.packageName);
-
-        // === 作用域限制：只处理陌陌和陌陌极速版 ===
+        // 【强校验】：无论作用域勾没勾，只要包名是陌陌，立刻触发！
+        log("【系统检测】LSPosed 传递了包名: " + lpparam.packageName);
+        
+        if (lpparam.packageName.equals("com.immomo.momo")) {
+            log("【绝对执行】成功锁定陌陌进程（com.immomo.momo），开始伪装！");
+            
+            // 即便 LSPosed 本身可能拦截了某些服务，我们提前调用启动
+            if (!loadConfig()) {
+                log("【警告】加载陌霸配置文件失败，但不影响插件继续存活。");
+            } else {
+                log("【成功】陌霸伪装配置已加载，准备执行 Hook！");
+                executeAllHooks(lpparam);
+                return;
+            }
+        }
+        
+        // 如果 LSPosed 在 Android 13 上只给了系统进程，那就只打印
         if (!lpparam.packageName.equals("com.immomo.momo") &&
             !lpparam.packageName.equals("com.immomo.young")) {
-            return;
+            log("非陌陌应用，跳过（" + lpparam.packageName + "）");
         }
-
-        log("=== 成功命中陌陌进程，开始加载配置 ===");
-
-        // 加载陌霸配置文件
-        if (!loadConfig()) {
-            log("加载陌霸配置文件失败，请检查 /data/data/com.miui.miuibbs/files/db/device 是否存在。");
-            return;
-        }
-
-        log("配置加载成功，开始执行 Hook...");
-
-        // 执行全部防护 Hook
-        hookBuildInfo();
-        hookTelephonyManager(lpparam);
-        hookWifiInfo(lpparam);
-        hookSettingsSecure(lpparam);
-        hookSystemProperties();
-        hookRuntimeExec();
-        hookPackageManager(lpparam);
-        hookFileExists();
-        hookSELinux();
-        hookDebugDetection();
-
-        log("所有 LSPosed Hook 执行完毕，插件运行正常！");
     }
 
     // ==================== 加载陌霸配置文件 ====================
@@ -94,7 +78,6 @@ public class MainHook implements IXposedHookLoadPackage {
             }
             br.close();
 
-            // 简单 JSON 解析
             String content = sb.toString().trim();
             if (content.startsWith("[")) {
                 org.json.JSONArray array = new org.json.JSONArray(content);
@@ -132,9 +115,24 @@ public class MainHook implements IXposedHookLoadPackage {
         return null;
     }
 
+    // ==================== 执行全部 Hook ====================
+    private void executeAllHooks(XC_LoadPackage.LoadPackageParam lpp) {
+        hookBuildInfo();
+        hookTelephonyManager(lpp);
+        hookWifiInfo(lpp);
+        hookSettingsSecure(lpp);
+        hookSystemProperties();
+        hookRuntimeExec();
+        hookPackageManager(lpp);
+        hookFileExists();
+        hookSELinux();
+        hookDebugDetection();
+        
+        log("【完成】所有伪装 Hook 已全部注入到陌陌！");
+    }
+
     // ==================== 核心 Hook 方法 ====================
     private void hookBuildInfo() {
-        // 反射修改 Build 信息
         setBuildField("BRAND", getConfigValue("build.BRAND", "build.brand"));
         setBuildField("MODEL", getConfigValue("build.MODEL", "build.model"));
         setBuildField("MANUFACTURER", getConfigValue("build.MANUFACTURER", "build.manufacturer"));
@@ -208,7 +206,6 @@ public class MainHook implements IXposedHookLoadPackage {
             XposedHelpers.findAndHookMethod(telephonyClass, "getSimState", new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) {
-                    // 强制返回 SIM 卡就绪状态
                     param.setResult(5);
                 }
             });
@@ -349,7 +346,6 @@ public class MainHook implements IXposedHookLoadPackage {
                             if (pkg == null) continue;
 
                             String lowerPkg = pkg.toLowerCase();
-                            // 过滤掉常见 Root/框架 和 你自己
                             if (lowerPkg.contains("magisk") || lowerPkg.contains("xposed") ||
                                 lowerPkg.contains("lsposed") || lowerPkg.contains("miuibbs") ||
                                 lowerPkg.contains("ksu")) {
