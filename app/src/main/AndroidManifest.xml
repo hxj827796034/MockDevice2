@@ -1,8 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:allowBackup="false" android:label="MockDevice">
-        <meta-data android:name="xposedmodule" android:value="true" />
-        <meta-data android:name="xposeddescription" android:value="陌陌风控伪装" />
-        <meta-data android:name="xposedminversion" android:value="82" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ✅ 复刻你成功案例的“核心护身符” -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
+    <application
+        android:allowBackup="false"
+        android:label="MomoBypass"
+        android:supportsRtl="true">
+
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+
+        <meta-data
+            android:name="xposeddescription"
+            android:value="MomoBypass v1.0 - 全面版 | 陌霸依赖 + 底层拦截" />
+
+        <!-- ✅ 锁定和你成功案例一致的 minversion -->
+        <meta-data
+            android:name="xposedminversion"
+            android:value="82" />
+
+        <!-- ✅ 保留推荐作用域声明 -->
+        <meta-data
+            android:name="xposedscope"
+            android:resource="@array/xposed_scope" />
+
     </application>
 </manifest>
