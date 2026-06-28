@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace 'com.example.momobypass'
+    namespace 'com.verify.momo'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.example.momobypass"
+        applicationId "com.verify.momo"
         minSdk 26
         targetSdk 34
         versionCode 1
@@ -26,12 +26,6 @@ android {
     }
 
     signingConfigs {
-        debug {
-            storeFile file('debug.keystore')
-            storePassword 'android'
-            keyAlias 'debug'
-            keyPassword 'android'
-        }
         release {
             storeFile file('debug.keystore')
             storePassword 'android'
@@ -43,7 +37,6 @@ android {
     buildTypes {
         release {
             minifyEnabled false
-            // ✅ 关键点：让 release 包也使用上面的签名配置
             signingConfig signingConfigs.release
         }
     }
@@ -58,6 +51,13 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    // 🔐 强制打包 assets 目录
+    sourceSets {
+        main {
+            assets.srcDirs = ['src/main/assets']
+        }
     }
 }
 
